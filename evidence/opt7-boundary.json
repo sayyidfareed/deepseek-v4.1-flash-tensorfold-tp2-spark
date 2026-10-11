@@ -1,0 +1,98 @@
+[
+  {
+    "prompt_tokens": 72150,
+    "seconds": 29.80743938300293,
+    "usage": {
+      "prompt_tokens": 72150,
+      "completion_tokens": 4,
+      "total_tokens": 72154,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "answer": "ALPHA",
+    "passed": true,
+    "tensorfold": {
+      "enable_thinking": false,
+      "reasoning_effort": "none",
+      "engine": "lanes",
+      "tokens_per_second": 74.45956872719954,
+      "seconds": 29.800313555,
+      "prefill_seconds": 29.759787408,
+      "prefill_widths": [],
+      "prefill_raised": [],
+      "time_to_first_token": 29.760424609,
+      "sampling": "greedy",
+      "drafts": true,
+      "token_sha": "6f60a8adb51e",
+      "min_rows": 3
+    }
+  },
+  {
+    "prompt_tokens": 72149,
+    "seconds": 30.251030949992128,
+    "usage": {
+      "prompt_tokens": 72149,
+      "completion_tokens": 3,
+      "total_tokens": 72152,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "answer": "BRAVO",
+    "passed": true,
+    "tensorfold": {
+      "enable_thinking": false,
+      "reasoning_effort": "none",
+      "engine": "lanes",
+      "tokens_per_second": 43.721969981675905,
+      "seconds": 30.243903651,
+      "prefill_seconds": 30.198036202,
+      "prefill_widths": [],
+      "prefill_raised": [],
+      "time_to_first_token": 30.198558954,
+      "sampling": "greedy",
+      "drafts": true,
+      "token_sha": "9e6f78782ae4",
+      "min_rows": 3
+    }
+  },
+  {
+    "prompt_tokens": 72151,
+    "seconds": 30.701880055945367,
+    "usage": {
+      "prompt_tokens": 72151,
+      "completion_tokens": 4,
+      "total_tokens": 72155,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "answer": "CHARLIE",
+    "passed": true,
+    "tensorfold": {
+      "enable_thinking": false,
+      "reasoning_effort": "none",
+      "engine": "lanes",
+      "tokens_per_second": 71.4614879510929,
+      "seconds": 30.694752279,
+      "prefill_seconds": 30.652523001,
+      "prefill_widths": [],
+      "prefill_raised": [],
+      "time_to_first_token": 30.653326889,
+      "sampling": "greedy",
+      "drafts": true,
+      "token_sha": "06f0f72aced6",
+      "min_rows": 3
+    }
+  }
+]

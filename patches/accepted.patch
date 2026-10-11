@@ -1,0 +1,832 @@
+diff --git a/tools/dsv41-zig/test_candidates.py b/tools/dsv41-zig/test_candidates.py
+new file mode 100644
+index 0000000..33a8d3c
+--- /dev/null
++++ b/tools/dsv41-zig/test_candidates.py
+@@ -0,0 +1,81 @@
++"""Check the built candidate kernel against an independent stable sort; no model load or compilation."""
++import ctypes as C
++import json
++import sys
++import time
++import numpy as np
++import torch
++
++
++def checked(status):
++    if status:
++        raise RuntimeError(f'CUDA driver error {status}')
++
++
++def main():
++    torch.cuda.init()
++    context_guard = torch.empty(1, device="cuda")
++    driver = C.CDLL('libcuda.so.1')
++    module, function = C.c_void_p(), C.c_void_p()
++    checked(driver.cuModuleLoad(C.byref(module), sys.argv[1].encode()))
++    checked(driver.cuModuleGetFunction(C.byref(function), module, b'tf_ds_candidates_kernel'))
++    stream = torch.cuda.current_stream()
++    rng = np.random.default_rng(20261010)
++    results = []
++
++    def select(x, k):
++        rows, n = x.shape
++        tiles = (n + 4095) // 4096
++        partial = torch.empty((rows * tiles * k, 2), dtype=torch.int32, device='cuda')
++        output = torch.empty((rows * k, 2), dtype=torch.int32, device='cuda')
++        for stage in (0, 1):
++            args = [C.c_void_p(x.data_ptr()), C.c_void_p(partial.data_ptr()),
++                    C.c_void_p((output if stage else partial).data_ptr()), C.c_uint64(n),
++                    C.c_int(n), C.c_int(k), C.c_int(tiles), C.c_int(stage)]
++            params = (C.c_void_p * len(args))(*[C.cast(C.byref(a), C.c_void_p) for a in args])
++            checked(driver.cuLaunchKernel(function, tiles if stage == 0 else 1, rows, 1,
++                                          256, 1, 1, 0, C.c_void_p(stream.cuda_stream), params, None))
++        return output.cpu().numpy().reshape(rows, k, 2)
++
++    for rows in (1, 8, 16):
++        for n in (17, 4097, 129280):
++            for k in (1, 28, 64):
++                if k > n:
++                    continue
++                host = rng.standard_normal((rows, n)).astype(np.float32)
++                # Repeated values, ties across tiles, signed zero, extreme finite values.
++                host[:, ::7] = 1.0
++                host[:, 0] = -0.0
++                host[:, 1] = 0.0
++                host[:, 2] = np.finfo(np.float32).max
++                host[:, 3] = -np.finfo(np.float32).max
++                x = torch.from_numpy(host).cuda()
++                result = select(x, k)
++                for row in range(rows):
++                    ids = np.lexsort((np.arange(n), -host[row]))[:k]
++                    np.testing.assert_array_equal(result[row, :, 1], ids)
++                    np.testing.assert_array_equal(result[row, :, 0].view(np.uint32), host[row, ids].view(np.uint32))
++                start = time.perf_counter()
++                for _ in range(5):
++                    select(x, k)
++                results.append({'rows': rows, 'vocab': n, 'k': k, 'selection_copy_ms': (time.perf_counter()-start)*200})
++    for value in (float('nan'), float('inf'), -float('inf')):
++        host = np.zeros((2, 4097), dtype=np.float32)
++        host[1, -1] = value
++        got = select(torch.from_numpy(host).cuda(), 28)
++        np.testing.assert_array_equal(got[0, :, 1], np.arange(28))
++        assert np.all(got[1, :, 1].view(np.uint32) == 0xfffffffe)
++    # All finite values equal, with zeros of alternating sign, must pick smallest ids.
++    host = np.zeros((1, 129280), dtype=np.float32)
++    host[:, ::2] = -0.0
++    got = select(torch.from_numpy(host).cuda(), 64)
++    np.testing.assert_array_equal(got[0, :, 1], np.arange(64))
++    np.testing.assert_array_equal(got[0, :, 0].view(np.uint32), host[0, :64].view(np.uint32))
++    checked(driver.cuModuleUnload(module))
++    print(json.dumps({'status': 'pass', 'finite_cases':len(results), 'fallback_cases':3,
++                      'all_tied_case':1, 'results':results,
++                      'timing_limit':'Synthetic selection and readback including Python allocations; live model remained loaded. Not end-to-end generation throughput.'}, indent=2))
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/zig/kernels/cuda/dsv41_candidates.cuh b/zig/kernels/cuda/dsv41_candidates.cuh
+new file mode 100644
+index 0000000..380c9dd
+--- /dev/null
++++ b/zig/kernels/cuda/dsv41_candidates.cuh
+@@ -0,0 +1,71 @@
++// Exact GPU candidate selection for the existing host sampler.
++struct TfDsCandidate { float value; unsigned int id; };
++
++extern "C" __global__ void __launch_bounds__(256) tf_ds_candidates_kernel(
++    const float* logits, const TfDsCandidate* partial, TfDsCandidate* out,
++    unsigned long long ld, int n, int k, int tiles, int merge) {
++    __shared__ unsigned int hist[256];
++    __shared__ unsigned long long prefix, mask, keys[64];
++    __shared__ TfDsCandidate kept[64];
++    __shared__ int want, count, bad;
++    const int tile = blockIdx.x, row = blockIdx.y, t = threadIdx.x;
++    const int begin = merge ? 0 : tile * 4096;
++    const int end = merge ? tiles * k : min(begin + 4096, n);
++    if (t == 0) { prefix = mask = 0; want = min(k, end - begin); count = bad = 0; }
++    if (t < 64) { keys[t] = 0; kept[t] = {0.0f, 0xffffffffu}; }
++    __syncthreads();
++    // Nonfinite rows use the original host sampler, including its NaN semantics.
++    for (int i = begin + t; i < end; i += 256) {
++        const TfDsCandidate c = merge ? partial[row * tiles * k + i] : TfDsCandidate{logits[row * ld + i], (unsigned int)i};
++        if (c.id == 0xfffffffeu || (c.id < 0xfffffffeu && !isfinite(c.value))) atomicExch(&bad, 1);
++    }
++    __syncthreads();
++    if (bad) {
++        if (t < k) out[(row * (merge ? 1 : tiles) + tile) * k + t] = {0.0f, 0xfffffffeu};
++        return;
++    }
++    // Unique keys: value descending, ties (including signed zero) to lower id.
++    for (int digit = 7; digit >= 0; --digit) {
++        hist[t] = 0;
++        __syncthreads();
++        const unsigned long long p = prefix, m = mask;
++        for (int i = begin + t; i < end; i += 256) {
++            const TfDsCandidate c = merge ? partial[row * tiles * k + i] : TfDsCandidate{logits[row * ld + i], (unsigned int)i};
++            const unsigned long long key = c.id == 0xffffffffu ? 0 : tf_ds_score_key(c.value, c.id);
++            if ((key & m) == p) atomicAdd(hist + ((key >> (digit * 8)) & 255), 1u);
++        }
++        __syncthreads();
++        if (t == 0) {
++            int b = 255;
++            while (b > 0 && (int)hist[b] < want) want -= hist[b--];
++            prefix |= (unsigned long long)b << (digit * 8);
++            mask |= 255ull << (digit * 8);
++        }
++        __syncthreads();
++    }
++    for (int i = begin + t; i < end; i += 256) {
++        const TfDsCandidate c = merge ? partial[row * tiles * k + i] : TfDsCandidate{logits[row * ld + i], (unsigned int)i};
++        if (c.id != 0xffffffffu) {
++            const unsigned long long key = tf_ds_score_key(c.value, c.id);
++            if (key >= prefix) {
++                const int at = atomicAdd(&count, 1);
++                if (at < k) { keys[at] = key; kept[at] = c; }
++            }
++        }
++    }
++    __syncthreads();
++    // Sort a fixed 64 entries. Padding stays below every finite value.
++    for (int size = 2; size <= 64; size *= 2) {
++        for (int stride = size / 2; stride; stride /= 2) {
++            if (t < 64) {
++                const int other = t ^ stride;
++                if (other > t && ((keys[t] < keys[other]) == ((t & size) == 0))) {
++                    const auto key = keys[t]; keys[t] = keys[other]; keys[other] = key;
++                    const auto c = kept[t]; kept[t] = kept[other]; kept[other] = c;
++                }
++            }
++            __syncthreads();
++        }
++    }
++    if (t < k) out[(row * (merge ? 1 : tiles) + tile) * k + t] = kept[t];
++}
+diff --git a/zig/kernels/cuda/dsv41_ops.cu b/zig/kernels/cuda/dsv41_ops.cu
+index 8503b89..668a2f1 100644
+--- a/zig/kernels/cuda/dsv41_ops.cu
++++ b/zig/kernels/cuda/dsv41_ops.cu
+@@ -511,3 +511,5 @@ extern "C" __global__ void tf_ds_vspan_kernel(const unsigned char* types, const
+         out[i] = ty == 1 ? rows[(long long)row_of[t] * dim + c] : ty == 0 ? start[c] : ty == 2 ? newline[c] : end[c];
+     }
+ }
++
++#include "dsv41_candidates.cuh"
+diff --git a/zig/src/core/direct_io.zig b/zig/src/core/direct_io.zig
+index 18fb3dd..2d97bb5 100644
+--- a/zig/src/core/direct_io.zig
++++ b/zig/src/core/direct_io.zig
+@@ -88,15 +88,16 @@ test "direct reads return the same bytes as buffered reads" {
+     const gpa = std.testing.allocator;
+     var f = try File.open("/proc/self/exe");
+     defer f.close();
+-    var plain = try File.open("/proc/self/exe");
+-    defer plain.close();
+-    plain.direct = false;
++    // Open a genuinely buffered descriptor; toggling File.direct does not clear O_DIRECT.
++    const plain = std.c.open("/proc/self/exe", .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
++    try std.testing.expect(plain >= 0);
++    defer _ = std.c.close(plain);
+     const buf = try gpa.alignedAlloc(u8, .fromByteUnits(alignment), 1 << 20);
+     defer gpa.free(buf);
+     const want = try gpa.alloc(u8, 1 << 19);
+     defer gpa.free(want);
+     for ([_][2]usize{ .{ 0, 1 }, .{ 1, 4095 }, .{ 4095, 2 }, .{ 12345, 100000 }, .{ 8192, 1 << 19 } }) |c| {
+-        const n = std.c.pread(plain.fd, want.ptr, c[1], @intCast(c[0]));
++        const n = std.c.pread(plain, want.ptr, c[1], @intCast(c[0]));
+         try std.testing.expectEqual(@as(isize, @intCast(c[1])), n);
+         try std.testing.expectEqualSlices(u8, want[0..c[1]], try f.read(buf, c[0], c[1]));
+     }
+diff --git a/zig/src/families/dsv41/lanes.zig b/zig/src/families/dsv41/lanes.zig
+index c55995d..270073d 100644
+--- a/zig/src/families/dsv41/lanes.zig
++++ b/zig/src/families/dsv41/lanes.zig
+@@ -174,6 +174,25 @@ pub fn draw(row: []const f32, position: u64, s: ?lanes.Sampling) !u32 {
+     return @intCast(t);
+ }
+ 
++/// Candidate ids remain global vocabulary ids; sampling math stays on the host.
++fn drawCandidates(row: []const sampling.Candidate, position: u64, s: ?lanes.Sampling) !u32 {
++    const sm = s orelse return row[0].id;
++    if (sm.temperature <= 0) return row[0].id;
++    var values: [sampling.max_candidates]f32 = undefined;
++    var ids: [sampling.max_candidates]i64 = undefined;
++    for (row, 0..) |c, i| {
++        values[i] = c.value;
++        ids[i] = c.id;
++    }
++    return @intCast(try sampling.sampleCandidates(values[0..row.len], ids[0..row.len], position, .{
++        .seed = sm.seed,
++        .temperature = sm.temperature,
++        .top_k = sm.top_k,
++        .top_p = sm.top_p,
++        .min_p = sm.min_p,
++    }));
++}
++
+ /// Where rank 0's backend calls spend their time (ns, summed; --profile): a round's frame to rank 1, its forward
+ /// and absorb (synchronized apart), the logits' copy to the host and the draws; the drafter passes; the prefills.
+ pub const Profile = struct {
+@@ -214,11 +233,16 @@ const Lane = struct {
+ 
+ extern "c" fn exp(x: f64) f64;
+ 
+-/// A kept prompt state (the prompt cache's saved state, kept at a chunk end the prompt pass reached before its
+-/// replay): the slot's own part on the device (Model.snapCopy), and the extent its compressed rows stay in,
+-/// [base, base + at), held back from placement while it lives. Stale: a placement needed that room (its restore fails
+-/// and the prompt runs from 0).
+-pub const Snap = struct { id: u64, at: usize, base: usize, buf: cuda.DeviceBuffer, stale: bool = false };
++/// Retained device state reserves [base, end); an evicted extent must replay from the start.
++pub const Snap = struct { id: u64, at: usize, base: usize, end: usize, buf: cuda.DeviceBuffer, stale: bool = false };
++
++/// A resume may grow beyond its old reservation. Move it before overwriting another retained prefix.
++fn clashesKept(snaps: []const *Snap, lo: usize, hi: usize, except: *Snap) bool {
++    for (snaps) |sn| {
++        if (sn != except and !sn.stale and lo < sn.base + sn.at and sn.base < hi) return true;
++    }
++    return false;
++}
+ 
+ /// First tokens a handle names (each prompt's draw, read back right after its prefill).
+ const ring = 1024;
+@@ -374,7 +398,8 @@ pub const Lanes = struct {
+             // (a kept state knows no images: a prompt with them runs whole and keeps nothing)
+             if (s.images.len == 0 and self.usable(sn, len)) {
+                 kept = sn;
+-                moved = sn.base + size > m.pool_cap or clashes(taken[0..nt], sn.base, sn.base + size);
++                moved = sn.base + size > m.pool_cap or clashes(taken[0..nt], sn.base, sn.base + size) or
++                    clashesKept(self.snaps.items, sn.base + sn.at, sn.base + size, sn);
+             } else s.reuse_failed = true;
+         }
+         const base = if (kept != null and !moved) kept.?.base else try self.placeKept(taken[0..nt], size);
+@@ -461,6 +486,9 @@ pub const Lanes = struct {
+             }
+             if (base != sn.base) try m.copyExtent(sn.base, base, sn.at);
+             try m.snapCopy(slot, sn.buf.ptr, false);
++            // Relocate retained ownership with the copied prefix to avoid pinning its previous extent.
++            sn.base = base;
++            sn.end = @min(m.pool_cap, base + size + model.chunk_rows);
+             start = sn.at;
+             s.cached = @intCast(sn.at);
+         }
+@@ -562,7 +590,17 @@ pub const Lanes = struct {
+             };
+         }
+         const tokens: []const u32 = if (greedy) try m.roundArgmax(rows.ids.len) else &.{};
+-        const logits: []const f32 = if (greedy) &.{} else try m.roundLogits(rows.ids.len);
++        var count: usize = 1;
++        var eligible = m.gpu_candidates and !greedy;
++        for (windows) |w| if (w.stream.sampling) |sm| {
++            if (sm.temperature > 0) {
++                if (sm.top_k == 0 or sm.top_k > sampling.max_candidates - sampling.margin) eligible = false;
++                count = @max(count, @as(usize, @min(sm.top_k, sampling.max_candidates - sampling.margin)) + sampling.margin);
++            }
++        };
++        count = @min(count, m.vocab);
++        const candidates = if (eligible) try m.roundCandidates(rows.ids.len, count) else null;
++        const logits: []const f32 = if (greedy or candidates != null) &.{} else try m.roundLogits(rows.ids.len);
+         const t3 = m.now();
+         defer if (self.prof) |*p| {
+             p.send += t1 - t0;
+@@ -577,7 +615,7 @@ pub const Lanes = struct {
+         const V = m.vocab;
+         for (windows, out, 0..) |w, *o, k| {
+             const row0 = self.built.wins[k].row;
+-            for (0..w.rows()) |r| o.sampled[r] = if (greedy) tokens[row0 + r] else try draw(logits[(row0 + r) * V ..][0..V], w.positions[r], w.stream.sampling);
++            for (0..w.rows()) |r| o.sampled[r] = if (greedy) tokens[row0 + r] else if (candidates) |cs| try drawCandidates(cs[(row0 + r) * count ..][0..count], w.positions[r], w.stream.sampling) else try draw(logits[(row0 + r) * V ..][0..V], w.positions[r], w.stream.sampling);
+             const l = self.streams.getPtr(w.stream).?;
+             @memcpy(o.drafts[0..w.held], l.held[0..w.held]);
+             @memcpy(o.drafts[w.held..][0..w.tokens.len], w.tokens);
+@@ -683,7 +721,7 @@ pub const Lanes = struct {
+         while (true) {
+             used.clearRetainingCapacity();
+             try used.appendSlice(gpa, live);
+-            for (self.snaps.items) |sn| if (!sn.stale) try used.append(gpa, .{ sn.base, sn.base + sn.at });
++            for (self.snaps.items) |sn| if (!sn.stale) try used.append(gpa, .{ sn.base, sn.end });
+             if (place(used.items, size, self.m.pool_cap)) |b| return b;
+             const oldest = for (self.snaps.items) |sn| {
+                 if (!sn.stale) break sn;
+@@ -713,7 +751,7 @@ pub const Lanes = struct {
+         if (at == 0 or at % model.chunk_rows != 0 or at > s.prompt_len -| self.m.cfg.window) return error.NotAChunkEnd;
+         const sn = try self.gpa.create(Snap);
+         errdefer self.gpa.destroy(sn);
+-        sn.* = .{ .id = self.next_snap, .at = at, .base = l.base, .buf = try cuda.DeviceBuffer.alloc(self.m.ctx.d, self.m.snapBytes()) };
++        sn.* = .{ .id = self.next_snap, .at = at, .base = l.base, .end = @min(self.m.pool_cap, l.end + model.chunk_rows), .buf = try cuda.DeviceBuffer.alloc(self.m.ctx.d, self.m.snapBytes()) };
+         errdefer sn.buf.free();
+         try self.snaps.append(self.gpa, sn);
+         self.next_snap += 1;
+@@ -979,3 +1017,31 @@ test "greedy draws take the first largest logit" {
+     try std.testing.expectEqual(@as(u32, 1), try draw(&row, 9, null));
+     try std.testing.expectEqual(@as(u32, 1), try draw(&row, 9, .{ .seed = 3, .temperature = 0 }));
+ }
++
++test "retained histories preserve their replay and output reservations" {
++    var m: Model = undefined;
++    m.pool_cap = 1 << 20;
++    var ln: Lanes = .{ .gpa = std.testing.allocator, .m = &m, .peer = null };
++    defer ln.snaps.deinit(std.testing.allocator);
++    var snapshots: [8]Snap = undefined;
++    for (&snapshots, 0..) |*sn, i| {
++        const base = try ln.placeKept(&.{}, 102400);
++        try std.testing.expectEqual(i * 102400, base);
++        sn.* = .{ .id = i, .at = 98304, .base = base, .end = base + 102400, .buf = undefined };
++        try ln.snaps.append(std.testing.allocator, sn);
++    }
++    // All eight 100K histories can resume within their reservations without invalidating a neighbor.
++    for (&snapshots) |*sn| {
++        try std.testing.expect(!clashesKept(ln.snaps.items, sn.base + sn.at, sn.end, sn));
++        ln.staleOver(sn.base + sn.at, sn.end, sn);
++    }
++    for (snapshots) |sn| try std.testing.expect(!sn.stale);
++    // A larger continuation relocates into free room instead of overwriting the next cached prefix.
++    try std.testing.expect(clashesKept(ln.snaps.items, snapshots[0].at, 104448, &snapshots[0]));
++    try std.testing.expectEqual(@as(usize, 819200), try ln.placeKept(&.{}, 104448));
++    // At genuine capacity pressure, oldest retained states may still be evicted, never live ranges.
++    const live = [_][2]usize{.{ 0, 102400 }};
++    try std.testing.expectEqual(@as(usize, 102400), try ln.placeKept(&live, 409600));
++    try std.testing.expect(snapshots[0].stale and snapshots[4].stale);
++    try std.testing.expect(!snapshots[5].stale);
++}
+diff --git a/zig/src/families/dsv41/model.zig b/zig/src/families/dsv41/model.zig
+index fc30d3c..efe99a1 100644
+--- a/zig/src/families/dsv41/model.zig
++++ b/zig/src/families/dsv41/model.zig
+@@ -27,6 +27,7 @@ const comm_mod = @import("comm.zig");
+ const link = @import("link.zig");
+ const ring2d = @import("ring2d.zig");
+ const rdma = @import("rdma.zig");
++const sampling = @import("sampling.zig");
+ 
+ /// The served prompt chunk (TF_DS_PREFILL_CHUNK): a prompt runs in chunks that start at its multiples.
+ pub const chunk_rows = 2048;
+@@ -111,6 +112,10 @@ pub const Model = struct {
+     host_pos: []i64,
+     ids64: []i64,
+     vocab: usize,
++    gpu_candidates: bool,
++    candidate_scratch: u64,
++    candidate_out: u64,
++    candidate_host: []sampling.Candidate,
+     logits: []f32, // round.max_rows rows of logits on the host
+     amax: u64, // u32 [round.max_rows]: a round's greedy tokens on the device (roundArgmax)
+     amax_host: [round.max_rows]u32 = undefined,
+@@ -168,6 +173,9 @@ pub const Model = struct {
+         m.timer = null;
+         m.ptimer = null;
+         m.t_enqueue = 0;
++        m.clk_ph = @splat(0);
++        m.clk_cnt = @splat(0);
++        m.clk_rounds = 0;
+         m.t_forward = 0;
+         m.t_absorb = 0;
+         m.dpool = null;
+@@ -269,7 +277,7 @@ pub const Model = struct {
+                 var devices: std.ArrayList([]const u8) = .empty;
+                 var dit = std.mem.splitScalar(u8, devs, ',');
+                 while (dit.next()) |x| try devices.append(a, x);
+-                m.rdma_rings = try ring2d.Rings.open(gpa, d, try rdma.Kernels.load(m.rdma_mod.?), devices.items, o.rank, .{ .max_bytes = ring_bytes, .gid_index = 5 }, &m.comm, m.stream);
++                m.rdma_rings = try ring2d.Rings.open(gpa, d, try rdma.Kernels.load(m.rdma_mod.?), devices.items, o.rank, .{ .max_bytes = ring_bytes, .gid_index = try rdma.servedGidIndex() }, &m.comm, m.stream);
+                 m.two.?.rings = &m.rdma_rings.?;
+             }
+         }
+@@ -288,6 +296,10 @@ pub const Model = struct {
+         }
+         m.rd = try round.Round.init(&m.eng, &m.arena, a, o.pool);
+         m.amax = try m.arena.take(round.max_rows * 4);
++        m.gpu_candidates = if (std.c.getenv("TF_DS_GPU_CANDIDATES")) |v| std.mem.eql(u8, std.mem.span(v), "1") else false;
++        m.candidate_scratch = 0;
++        m.candidate_out = 0;
++        m.candidate_host = &.{};
+         if (o.graphs) m.graphs = round.Graphs.init(gpa);
+         if (o.side) try m.rd.useSide(&m.eng);
+         if (o.prefetch) try m.rd.usePrefetch(&m.eng);
+@@ -336,6 +348,13 @@ pub const Model = struct {
+         m.ids64 = try a.alloc(i64, chunk_rows);
+         m.vocab = sp.world * (if (m.two) |t| t.hw[0] + t.hw[1] else m.w.head.n); // 2D: both pairs' vocabulary parts
+         m.logits = try a.alloc(f32, round.max_rows * m.vocab);
++        if (m.gpu_candidates and m.rank == 0) {
++            const bytes = round.max_rows * sampling.max_candidates * @sizeOf(sampling.Candidate);
++            m.candidate_scratch = try m.arena.take(bytes * ((m.vocab + 4095) / 4096));
++            m.candidate_out = try m.arena.take(bytes);
++            m.candidate_host = try a.alloc(sampling.Candidate, round.max_rows * sampling.max_candidates);
++        }
++
+         return m;
+     }
+ 
+@@ -390,7 +409,7 @@ pub const Model = struct {
+     /// connected, and started once both are (an all-gather as the barrier).
+     pub fn openRing(gpa: std.mem.Allocator, d: *const cuda.Driver, k: rdma.Kernels, devices: []const []const u8, rank: u32, comm: *const comm_mod.Comm, stream: cuda.Stream) !*rdma.Ring {
+         if (comm.world != 2) return error.NotTwoRanks;
+-        const r = try rdma.Ring.create(gpa, d, k, devices, rank, 2, .{ .max_bytes = ring_bytes, .gid_index = 5 });
++        const r = try rdma.Ring.create(gpa, d, k, devices, rank, 2, .{ .max_bytes = ring_bytes, .gid_index = try rdma.servedGidIndex() });
+         errdefer r.destroy(gpa);
+         const per = @sizeOf(rdma.Info);
+         const mine = [2]rdma.Info{ r.info(0), r.info(1) };
+@@ -742,6 +761,18 @@ pub const Model = struct {
+         return m.amax_host[0..R];
+     }
+ 
++    /// Null means a nonfinite row requires the unchanged host path.
++    pub fn roundCandidates(m: *Model, R: usize, k: usize) !?[]const sampling.Candidate {
++        std.debug.assert(m.gpu_candidates and m.rank == 0 and R <= round.max_rows);
++        try m.ops.candidateRows(m.stream, m.rd.logits, m.vocab, R, k, m.candidate_scratch, m.candidate_out);
++        try m.stream.synchronize();
++        try m.ctx.d.check(m.ctx.d.api.cuMemcpyDtoH_v2(m.candidate_host.ptr, m.candidate_out, R * k * @sizeOf(sampling.Candidate)), "cuMemcpyDtoH candidates");
++        const result = m.candidate_host[0 .. R * k];
++        for (result) |c| if (c.id == 0xfffffffe) return null;
++        for (result) |c| if (c.id >= m.vocab) return error.BadCandidates;
++        return result;
++    }
++
+     pub fn roundLogits(m: *Model, R: usize) ![]const f32 {
+         const d = m.ctx.d;
+         try m.stream.synchronize();
+diff --git a/zig/src/families/dsv41/ops.zig b/zig/src/families/dsv41/ops.zig
+index a82baee..28f1b88 100644
+--- a/zig/src/families/dsv41/ops.zig
++++ b/zig/src/families/dsv41/ops.zig
+@@ -37,6 +37,7 @@ pub const Ops = struct {
+     copy16: cuda.Function,
+     argmax_rows: cuda.Function,
+     gpu_clock: cuda.Function,
++    candidates: cuda.Function,
+ 
+     /// The three images (cuda.kernels.torch_pointwise, torch_movement and dsv41_ops, or the fatbins' bytes).
+     pub fn load(d: *const cuda.Driver, pointwise: []const u8, movement: []const u8, family: []const u8) !Ops {
+@@ -68,6 +69,7 @@ pub const Ops = struct {
+             .copy16 = try fm.function("tf_ds_copy_rows16_kernel"),
+             .argmax_rows = try fm.function("tf_ds_argmax_rows_kernel"),
+             .gpu_clock = try fm.function("tf_ds_clock_kernel"),
++            .candidates = try fm.function("tf_ds_candidates_kernel"),
+         };
+     }
+ 
+@@ -292,6 +294,24 @@ pub const Ops = struct {
+         try go(o.argmax_rows, s, rows, 1024, &a);
+     }
+ 
++    /// Exact top-k candidates: independent vocabulary tiles, then their union.
++    pub fn candidateRows(o: *const Ops, s: cuda.Stream, logits: u64, n: usize, rows: usize, k: usize, scratch: u64, out: u64) !void {
++        std.debug.assert(k > 0 and k <= 64 and k <= n);
++        const tiles = (n + 4095) / 4096;
++        for (0..2) |stage| {
++            var a: cuda.Args = .{};
++            a.add(logits);
++            a.add(scratch);
++            a.add(if (stage == 0) scratch else out);
++            a.add(@as(u64, n));
++            a.add(@as(c_int, @intCast(n)));
++            a.add(@as(c_int, @intCast(k)));
++            a.add(@as(c_int, @intCast(tiles)));
++            a.add(@as(c_int, @intCast(stage)));
++            try cuda.launch.launch(o.candidates, .{ .grid = .{ .x = @intCast(if (stage == 0) tiles else 1), .y = @intCast(rows) }, .block = .{ .x = 256 } }, s, &a);
++        }
++    }
++
+     /// The GPU clock (ns) into buf[i] when the stream reaches it (a profile).
+     pub fn gpuClock(o: *const Ops, s: cuda.Stream, buf: u64, tag: u32, reset: bool, cap: u32) !void {
+         var a: cuda.Args = .{};
+diff --git a/zig/src/families/dsv41/prompt.zig b/zig/src/families/dsv41/prompt.zig
+index 9cf2a61..51be7de 100644
+--- a/zig/src/families/dsv41/prompt.zig
++++ b/zig/src/families/dsv41/prompt.zig
+@@ -938,7 +938,7 @@ fn indexer(e: *const Engine, ch: *Chunk, cs: *const Caches, sh: *Shared, li: usi
+     try e.exact.bf16Scale(e.s, ch.wl, ch.iw, n * ih, exact.indexScale(id, ih));
+     const kk = @min(c.index_topk, n_comp_end);
+     // rows in blocks so the [rows, n_comp] keys stay bounded at long contexts
+-    const rb = @max(16, @min(n, (@as(usize, 1) << 26) / (4 * @max(n_comp_end, 1))));
++    const rb = indexBlockRows(n, n_comp_end);
+     if (rb * n_comp_end > key_elems) return error.ChunkTooLong;
+     const keyed = li != c.candidate_source and !(c.candidate_source < li) and kk & (kk - 1) == 0;
+     const k: tri_index.IndexK = .{ .fp4 = .{ .codes = cs.idx_codes[src], .scales = cs.idx_scales[src] } };
+@@ -985,6 +985,31 @@ fn indexer(e: *const Engine, ch: *Chunk, cs: *const Caches, sh: *Shared, li: usi
+     sh.kk = kk;
+ }
+ 
++/// Even multi-block strides preserve 16-byte VIS alignment without increasing workspace.
++fn indexBlockRows(rows: usize, compressed: usize) usize {
++    const limit = @max(16, @min(rows, (@as(usize, 1) << 26) / (4 * @max(compressed, 1))));
++    return if (limit < rows) limit & ~@as(usize, 1) else limit;
++}
++
++test "prompt index blocks preserve captured VIS alignment at long ragged contexts" {
++    try std.testing.expectEqual(@as(usize, 464), indexBlockRows(2048, 36075));
++    try std.testing.expectEqual(@as(usize, 465), indexBlockRows(465, 36075));
++    for ([_]usize{ 1, 15, 16, 17, 465, 466, 1024, 2048 }) |rows| {
++        for ([_]usize{ 1, 512, 8192, 32768, 32769, 36075, 65535, 65536, 100000, 524288 }) |compressed| {
++            const stride = indexBlockRows(rows, compressed);
++            try std.testing.expect(stride > 0);
++            var covered: usize = 0;
++            while (covered < rows) {
++                try std.testing.expectEqual(@as(usize, 0), (covered * 8) % 16);
++                const count = @min(stride, rows - covered);
++                try std.testing.expect(count * compressed <= (@as(usize, 1) << 24));
++                covered += count;
++            }
++            try std.testing.expectEqual(rows, covered);
++        }
++    }
++}
++
+ /// topk_select's torch step, keys.topk(k).values: the top-k set of the unique int64 keys (ops.topkI64).
+ pub fn torchTopk(ctx: ?*anyopaque, _: tri.Tri, keys: u64, ks: usize, rows: usize, n: usize, k: usize, top: u64) anyerror!void {
+     const e: *const Engine = @ptrCast(@alignCast(ctx.?));
+diff --git a/zig/src/families/dsv41/rdma.zig b/zig/src/families/dsv41/rdma.zig
+index dfc06a9..008baed 100644
+--- a/zig/src/families/dsv41/rdma.zig
++++ b/zig/src/families/dsv41/rdma.zig
+@@ -21,12 +21,33 @@ const send_depth = 512;
+ const cq_depth = 4096;
+ const stage_threads = 512;
+ const collect_threads = 256;
+-const mtu_4096 = 5;
+ const wc_recv_rdma_with_imm = 129;
+ const host_register_portable = 0x01;
+ const host_register_devicemap = 0x02;
+ 
+-pub const Error = error{ VerbsFailed, PostFailed, BadInfo, TooLarge, Failed, NoHostRegister } || cuda.Error || fabric.verbs.Error || std.posix.MMapError || std.Thread.SpawnError;
++pub const Error = error{ VerbsFailed, PostFailed, BadMtu, BadInfo, TooLarge, Failed, NoHostRegister } || cuda.Error || fabric.verbs.Error || std.posix.MMapError || std.Thread.SpawnError;
++
++/// The served ring has its own GID selection, independent of NCCL's.
++pub fn parseGidIndex(text: ?[]const u8) error{InvalidRdmaGidIndex}!u8 {
++    const value = text orelse return 5;
++    if (value.len == 0) return error.InvalidRdmaGidIndex;
++    for (value) |c| if (c < '0' or c > '9') return error.InvalidRdmaGidIndex;
++    return std.fmt.parseInt(u8, value, 10) catch error.InvalidRdmaGidIndex;
++}
++
++pub fn servedGidIndex() error{InvalidRdmaGidIndex}!u8 {
++    const text = if (std.c.getenv("TF_RDMA_GID_INDEX")) |v| std.mem.span(v) else null;
++    return parseGidIndex(text) catch |err| {
++        std.debug.print("TF_RDMA_GID_INDEX: expected a decimal GID index in 0..255\n", .{});
++        return err;
++    };
++}
++
++/// ibv_mtu is an ordered enum, 1=256 through 5=4096. Both ends use the smaller active MTU.
++fn pathMtu(local: c_int, remote: c_int) error{BadMtu}!c_int {
++    if (local < 1 or local > 5 or remote < 1 or remote > 5) return error.BadMtu;
++    return @min(local, remote);
++}
+ 
+ /// The Python build's switches, with their defaults (TF_RDMA_SLOTS, TF_RDMA_STAGE_BLOCKS, ..., TF_RDMA_PDL as served).
+ pub const Settings = struct {
+@@ -50,6 +71,7 @@ pub const Info = extern struct {
+     psn: [max_devices]u32,
+     rkey: [max_devices]u32,
+     gid: [max_devices][16]u8,
++    active_mtu: [max_devices]c_int, // requires the same Info layout on every rank
+     recv: u64,
+ };
+ 
+@@ -116,6 +138,7 @@ const Nic = struct {
+     mr_send: *vabi.Mr,
+     mr_recv: *vabi.Mr,
+     gid: [16]u8,
++    active_mtu: c_int,
+     qps: [max_ranks]?*vabi.Qp = @splat(null),
+     psns: [max_ranks]u32 = @splat(0),
+ };
+@@ -202,6 +225,8 @@ pub const Ring = struct {
+         const api = r.v.api;
+         const ctx = try r.v.openDevice(name);
+         errdefer _ = api.ibv_close_device(ctx);
++        const port = try r.v.port(ctx, 1);
++        const active_mtu = try pathMtu(port.active_mtu, port.active_mtu);
+         const pd = api.ibv_alloc_pd(ctx) orelse return error.VerbsFailed;
+         errdefer _ = api.ibv_dealloc_pd(pd);
+         const cq = api.ibv_create_cq(ctx, cq_depth, null, null, 0) orelse return error.VerbsFailed;
+@@ -212,7 +237,7 @@ pub const Ring = struct {
+         const mr_recv = api.ibv_reg_mr(pd, r.recv.mem.ptr, r.recv.mem.len, access) orelse return error.VerbsFailed;
+         errdefer _ = api.ibv_dereg_mr(mr_recv);
+         const gid = try r.v.gid(ctx, 1, r.s.gid_index);
+-        var nic: Nic = .{ .ctx = ctx, .pd = pd, .cq = cq, .mr_send = mr_send, .mr_recv = mr_recv, .gid = gid.raw };
++        var nic: Nic = .{ .ctx = ctx, .pd = pd, .cq = cq, .mr_send = mr_send, .mr_recv = mr_recv, .gid = gid.raw, .active_mtu = active_mtu };
+         errdefer for (nic.qps) |q| if (q) |qp| {
+             _ = api.ibv_destroy_qp(qp);
+         };
+@@ -264,6 +289,7 @@ pub const Ring = struct {
+             out.psn[d] = n.psns[p];
+             out.rkey[d] = n.mr_recv.rkey;
+             out.gid[d] = n.gid;
++            out.active_mtu[d] = n.active_mtu;
+         }
+         return out;
+     }
+@@ -271,6 +297,12 @@ pub const Ring = struct {
+     /// `remote[p]`: what rank p's `info(rank)` gave. Moves every QP to RTR and RTS (the Python build's attributes).
+     pub fn connect(r: *Ring, remote: []const Info) Error!void {
+         if (remote.len != r.world) return error.BadInfo;
++        // Validate all peer MTUs before transitioning any QP.
++        for (remote, 0..) |ri, p| {
++            if (p == r.rank) continue;
++            if (ri.devices != r.nd) return error.BadInfo;
++            for (r.nics[0..r.nd], 0..) |n, d| _ = try pathMtu(n.active_mtu, ri.active_mtu[d]);
++        }
+         const api = r.v.api;
+         const m = vabi.mask;
+         for (remote, 0..) |ri, p| {
+@@ -280,7 +312,8 @@ pub const Ring = struct {
+             peer.* = .{ .qpn = ri.qpn, .psn = ri.psn, .rkey = ri.rkey, .gid = ri.gid, .recv = ri.recv };
+             for (r.nics[0..r.nd], 0..) |n, d| {
+                 const qp = n.qps[p].?;
+-                var a: vabi.QpAttr = .{ .qp_state = vabi.qps_rtr, .path_mtu = mtu_4096, .dest_qp_num = ri.qpn[d], .rq_psn = ri.psn[d], .max_dest_rd_atomic = 1, .min_rnr_timer = 12 };
++                std.debug.print("RDMA rank {d} peer {d} rail {d}: gid_index={d} path_mtu={d}\n", .{ r.rank, p, d, r.s.gid_index, try pathMtu(n.active_mtu, ri.active_mtu[d]) });
++                var a: vabi.QpAttr = .{ .qp_state = vabi.qps_rtr, .path_mtu = try pathMtu(n.active_mtu, ri.active_mtu[d]), .dest_qp_num = ri.qpn[d], .rq_psn = ri.psn[d], .max_dest_rd_atomic = 1, .min_rnr_timer = 12 };
+                 a.ah_attr = .{ .grh = .{ .dgid = .{ .raw = ri.gid[d] }, .sgid_index = r.s.gid_index, .hop_limit = 64 }, .is_global = 1, .port_num = 1 };
+                 if (api.ibv_modify_qp(qp, &a, m.state | m.av | m.path_mtu | m.dest_qpn | m.rq_psn | m.max_dest_rd_atomic | m.min_rnr_timer) != 0) return error.VerbsFailed;
+                 a = .{ .qp_state = vabi.qps_rts, .timeout = 14, .retry_cnt = 7, .rnr_retry = 7, .sq_psn = n.psns[p], .max_rd_atomic = 1 };
+@@ -381,16 +414,13 @@ pub const Ring = struct {
+         const slot: usize = @intCast(q % r.s.slots);
+         return &r.flags()[slot * r.world + p];
+     }
+-
+     fn peerOf(r: *const Ring, nic: Nic, qpn: u32) ?usize {
+         for (0..r.world) |p| if (nic.qps[p]) |qp| if (qp.qp_num == qpn) return p;
+         return null;
+     }
+-
+     fn scalar(r: *const Ring, offset: usize) DevicePtr {
+         return r.scalars.ptr + offset;
+     }
+-
+     /// recv [world x n4 float4] <- every rank's send [n4 float4] (fp32, 16-byte aligned), on `stream`.
+     pub fn gather(r: *Ring, stream: cuda.Stream, send: DevicePtr, n4: u32, recv: DevicePtr) Error!void {
+         if (r.failure() != null) return error.Failed;
+@@ -417,10 +447,8 @@ pub const Ring = struct {
+         const blocks = std.math.clamp((@as(u64, n4) * r.world + per - 1) / per, 1, r.s.collect_blocks);
+         try cuda.launch.launch(r.k.collect, .{ .grid = .{ .x = @intCast(blocks), .y = 1, .z = 1 }, .block = .{ .x = collect_threads, .y = 1, .z = 1 }, .pdl = r.s.pdl }, stream, &a);
+     }
+-
+     /// A rank's slice in `dsts` (its rows `row4` float4 wide, `stride4` apart; ptr 0: not copied out).
+     pub const Dst = struct { ptr: DevicePtr = 0, row4: u32 = 0, stride4: u64 = 0 };
+-
+     /// Every rank's [rows, w_p] fp32 slice straight into dsts[p]; `send` is this rank's slice, contiguous. Every rank
+     /// names the same widths, so each peer's ring slot holds rows x w_p floats.
+     pub fn gatherInto(r: *Ring, stream: cuda.Stream, send: DevicePtr, rows: u32, own_row4: u32, dsts: []const Dst) Error!void {
+@@ -458,11 +486,9 @@ pub const Ring = struct {
+         const blocks = std.math.clamp((copy4 + per - 1) / per, 1, r.s.collect_blocks);
+         try cuda.launch.launch(r.k.collect_into, .{ .grid = .{ .x = @intCast(blocks), .y = 1, .z = 1 }, .block = .{ .x = collect_threads, .y = 1, .z = 1 }, .pdl = r.s.pdl }, stream, &a);
+     }
+-
+     fn probe(r: *const Ring) DevicePtr {
+         return if (r.s.probing) r.scalar(16) else 0;
+     }
+-
+     fn stage(r: *Ring, stream: cuda.Stream, send: DevicePtr, n4: u32, own: DevicePtr, own_row4: u32, own_stride4: u64) Error!void {
+         var a: cuda.Args = .{};
+         a.add(send);
+@@ -485,7 +511,6 @@ pub const Ring = struct {
+         const blocks = std.math.clamp((@as(u64, n4) + 1023) / 1024, 1, r.s.stage_blocks);
+         try cuda.launch.launch(r.k.stage, .{ .grid = .{ .x = @intCast(blocks), .y = 1, .z = 1 }, .block = .{ .x = stage_threads, .y = 1, .z = 1 }, .pdl = r.s.pdl }, stream, &a);
+     }
+-
+     /// (stage, doorbell to every flag, copy-out) mean ns over the probed gathers and their count; resets the sums.
+     pub fn probes(r: *Ring) Error![4]f64 {
+         var host: [8]u64 = undefined;
+@@ -495,27 +520,81 @@ pub const Ring = struct {
+         return .{ @as(f64, @floatFromInt(host[0])) / n, @as(f64, @floatFromInt(host[1])) / n, @as(f64, @floatFromInt(host[2])) / n, @floatFromInt(host[3]) };
+     }
+ };
+-
+ fn postRecv(ctx: *vabi.Context, qp: *vabi.Qp) Error!void {
+     var wr: vabi.RecvWr = .{};
+     var bad: ?*vabi.RecvWr = null;
+     if (ctx.ops.post_recv(qp, &wr, &bad) != 0) return error.PostFailed;
+ }
+-
+ fn postWrite(ctx: *vabi.Context, qp: *vabi.Qp, local: []const u8, lkey: u32, remote: u64, rkey: u32, q: u64) Error!void {
+     var sge: vabi.Sge = .{ .addr = @intFromPtr(local.ptr), .length = @intCast(local.len), .lkey = lkey };
+     var wr: vabi.SendWr = .{ .wr_id = q, .sg_list = @ptrCast(&sge), .num_sge = @intFromBool(local.len > 0), .opcode = vabi.wr_rdma_write_imm, .send_flags = vabi.send_signaled, .imm_data = seqs.immediate(q), .remote_addr = remote, .rkey = rkey };
+     var bad: ?*vabi.SendWr = null;
+     if (ctx.ops.post_send(qp, &wr, &bad) != 0) return error.PostFailed;
+ }
+-
+ test "every declaration compiles (the GPU and verbs paths run only on the nodes)" {
+     std.testing.refAllDecls(@This());
+     std.testing.refAllDecls(Ring);
+     std.testing.refAllDecls(Kernels);
+ }
+-
+ test "the info a peer reads is a plain extern struct (it crosses the link as bytes)" {
+-    try std.testing.expectEqual(@as(usize, 128), @sizeOf(Info));
+-    try std.testing.expectEqual(@as(usize, 120), @offsetOf(Info, "recv"));
++    try std.testing.expectEqual(@as(usize, 144), @sizeOf(Info));
++    try std.testing.expectEqual(@as(usize, 116), @offsetOf(Info, "active_mtu"));
++    try std.testing.expectEqual(@as(usize, 136), @offsetOf(Info, "recv"));
++}
++test "served GID defaults to 5 and accepts explicit 3 without silently accepting malformed settings" {
++    try std.testing.expectEqual(@as(u8, 5), try parseGidIndex(null));
++    try std.testing.expectEqual(@as(u8, 3), try parseGidIndex("3"));
++    try std.testing.expectEqual(@as(u8, 0), try parseGidIndex("0"));
++    try std.testing.expectEqual(@as(u8, 255), try parseGidIndex("255"));
++    for ([_][]const u8{ "", "-1", "+3", " 3", "3 ", "0x3", "3_0", "256", "invalid" }) |value|
++        try std.testing.expectError(error.InvalidRdmaGidIndex, parseGidIndex(value));
++}
++test "RDMA MTU negotiation is symmetric for every supported port MTU and rejects invalid metadata" {
++    for (1..6) |a| for (1..6) |b| {
++        try std.testing.expectEqual(@as(c_int, @intCast(@min(a, b))), try pathMtu(@intCast(a), @intCast(b)));
++    };
++    for ([_]c_int{ -1, 0, 6, 4096 }) |bad| {
++        try std.testing.expectError(error.BadMtu, pathMtu(bad, 3));
++        try std.testing.expectError(error.BadMtu, pathMtu(3, bad));
++    }
++}
++test "connect programs the negotiated MTU and configured GID and rejects bad peers before QP mutation" {
++    const Probe = struct {
++        var calls: usize = 0;
++        var mtu: c_int = 0;
++        var gid: u8 = 0;
++        fn modify(_: *vabi.Qp, attr: *vabi.QpAttr, _: c_int) callconv(.c) c_int {
++            calls += 1;
++            if (attr.qp_state == vabi.qps_rtr) {
++                mtu = attr.path_mtu;
++                gid = attr.ah_attr.grh.sgid_index;
++            }
++            return 0;
++        }
++    };
++    var verbs: Verbs = undefined;
++    verbs.api.ibv_modify_qp = Probe.modify;
++    var r: Ring = undefined;
++    r.v = &verbs;
++    r.rank = 0;
++    r.world = 2;
++    r.nd = 1;
++    r.s = .{ .max_bytes = 64, .gid_index = 3 };
++    r.nics[0].qps[1] = @ptrFromInt(0x1000);
++    r.nics[0].psns[1] = 1;
++    var peers: [2]Info = @splat(std.mem.zeroes(Info));
++    peers[1].devices = 1;
++    for ([_][2]c_int{ .{ 3, 5 }, .{ 5, 3 }, .{ 5, 5 } }) |mtus| {
++        r.nics[0].active_mtu = mtus[0];
++        peers[1].active_mtu[0] = mtus[1];
++        Probe.calls = 0;
++        try r.connect(&peers);
++        try std.testing.expectEqual(@as(usize, 2), Probe.calls);
++        try std.testing.expectEqual(@min(mtus[0], mtus[1]), Probe.mtu);
++        try std.testing.expectEqual(@as(u8, 3), Probe.gid);
++    }
++    Probe.calls = 0;
++    peers[1].active_mtu[0] = 0;
++    try std.testing.expectError(error.BadMtu, r.connect(&peers));
++    try std.testing.expectEqual(@as(usize, 0), Probe.calls);
+ }
+diff --git a/zig/src/families/dsv41/sampling.zig b/zig/src/families/dsv41/sampling.zig
+index 3a8c450..615b86c 100644
+--- a/zig/src/families/dsv41/sampling.zig
++++ b/zig/src/families/dsv41/sampling.zig
+@@ -23,6 +23,8 @@ pub const margin = 8;
+ /// The candidates a row takes at most here (top_k + MARGIN).
+ pub const max_candidates = 64;
+ 
++pub const Candidate = extern struct { value: f32, id: u32 };
++
+ extern "c" fn exp(x: f64) f64;
+ extern "c" fn log(x: f64) f64;
+ 
+@@ -106,6 +108,15 @@ pub fn sampleRow(row: []const f32, position: u64, s: Sampling) !i64 {
+     var values: [max_candidates]f32 = undefined;
+     var ids: [max_candidates]i64 = undefined;
+     const width = topCandidates(row, count, &values, &ids);
++    return sampleCandidates(values[0..width], ids[0..width], position, s);
++}
++
++/// Draw from an exact ordered candidate list, with the original host arithmetic.
++pub fn sampleCandidates(values: []const f32, ids: []const i64, position: u64, s: Sampling) !i64 {
++    if (values.len == 0 or values.len != ids.len or values.len > max_candidates) return error.BadCandidates;
++    if (s.temperature <= 0) return ids[0];
++    if (s.top_k == 0) return error.NotPortedYet;
++    const width = values.len;
+     // choose_rows on the candidates (already in lexsort's order)
+     const k = @max(1, @min(s.top_k, width));
+     const t = @max(s.temperature, 1e-6);
+@@ -168,3 +179,27 @@ test "top candidates by value, then id" {
+     try std.testing.expectEqualSlices(i64, &.{ 1, 3, 5, 2 }, &ids);
+     try std.testing.expectEqualSlices(f32, &.{ 5, 5, 5, 3 }, &v);
+ }
++
++test "compact candidates preserve seeded draws across sampling settings" {
++    var row: [257]f32 = undefined;
++    for (&row, 0..) |*v, i| v.* = @as(f32, @floatFromInt((i * 73) % 101)) / 7 - 9;
++    row[0] = -0.0;
++    row[256] = 0.0;
++    var values: [max_candidates]f32 = undefined;
++    var ids: [max_candidates]i64 = undefined;
++    const width = topCandidates(&row, max_candidates, &values, &ids);
++    for ([_]usize{ 1, 2, 20, 56 }) |k| {
++        for ([_]f64{ 0.01, 0.7, 1.0, 2.0 }) |temperature| {
++            for ([_]f64{ 0.1, 0.95, 1.0 }) |p| {
++                for ([_]f64{ 0.0, 0.2 }) |minimum| {
++                    for ([_]u64{ 0, 1, 123456789, 0xffffffffffffffff }) |seed| {
++                        const s: Sampling = .{ .seed = seed, .temperature = temperature, .top_k = k, .top_p = p, .min_p = minimum };
++                        try std.testing.expectEqual(try sampleRow(&row, 999, s), try sampleCandidates(values[0..width], ids[0..width], 999, s));
++                    }
++                }
++            }
++        }
++    }
++    try std.testing.expectError(error.BadCandidates, sampleCandidates(&.{}, &.{}, 0, .{ .seed = 0 }));
++    try std.testing.expectError(error.NotPortedYet, sampleCandidates(&.{1}, &.{5}, 0, .{ .seed = 0, .top_k = 0 }));
++}

@@ -1,0 +1,16 @@
+{
+  "head_ip": "192.0.2.10",
+  "link_port": 29620,
+  "api_port": 18891,
+  "hca": "REPLACE_WITH_CABLED_HCA_PORTS",
+  "interface": "REPLACE_WITH_FABRIC_INTERFACE",
+  "gid_index": 5,
+  "model": "/model",
+  "cache": "/state/tf-ds-rank",
+  "kit": "/kit",
+  "engram": "/engram",
+  "token_map": "/state/dsv41_token_map.json",
+  "key_file": "/run/secrets/deepseek_api_key",
+  "bin_dir": "/opt/deepseek/bin",
+  "served_name": "deepseek-v4.1-flash-tp2-trial"
+}

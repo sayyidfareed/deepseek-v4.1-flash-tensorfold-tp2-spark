@@ -1,0 +1,42 @@
+test
++- run test 11 pass, 1 fail (12 total)
+error: 'direct_io.test.direct reads return the same bytes as buffered reads' failed:
+       expected 1, found -1
+       <zig-0.17.0>/lib/std/testing.zig:93:17: 0x11d4867 in expectEqualInner__func_1087 (test)
+                       return error.TestExpectedEqual;
+                       ^
+       <zig-0.17.0>/lib/std/testing.zig:57:5: 0x11d71bb in expectEqual (test)
+           return expectEqualInner(T, expected, actual);
+           ^
+       zig/src/core/direct_io.zig:100:9: 0x11d727f in test.direct reads return the same bytes as buffered reads (test)
+               try std.testing.expectEqual(@as(isize, @intCast(c[1])), n);
+               ^
+failed command: <shared-zig-cache>/o/45cd7631473e22520cdc7c01ad8f5ddd/test --cache-dir=<shared-zig-cache> --seed=0x8d5f45a3 --listen=-
+
+Build Summary: 17/19 steps succeeded (1 failed); 135/136 tests passed (1 failed)
+test transitive failure
++- run test cached
+|  +- compile test debug native cached 23ms MaxRSS:33M
+|     +- options cached
++- run test 11 pass, 1 fail (12 total)
+|  +- compile test debug native cached 15ms MaxRSS:33M
++- run test cached
+|  +- compile test debug native cached 17ms MaxRSS:33M
++- run test 8 pass (8 total) 15ms MaxRSS:5M
+|  +- compile test debug native success 2s MaxRSS:368M
+|     +- WriteFile draft_ids.txt success
+|     +- options (reused)
++- run test 10 pass (10 total) 18ms MaxRSS:6M
+|  +- compile test debug native success 3s MaxRSS:438M
+|     +- options (reused)
+|     +- WriteFile draft_ids.txt (reused)
++- run test 105 pass (105 total) 1s MaxRSS:114M
+|  +- compile test debug native success 6s MaxRSS:623M
+|     +- options (reused)
++- run test cached
+|  +- compile test debug native cached 4ms MaxRSS:33M
++- run test 1 pass (1 total) 6ms MaxRSS:5M
+   +- compile test debug native success 2s MaxRSS:323M
+      +- options (reused)
+      +- WriteFile draft_ids.txt (reused)
+

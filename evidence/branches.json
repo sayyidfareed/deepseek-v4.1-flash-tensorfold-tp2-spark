@@ -1,0 +1,72 @@
+[
+  {
+    "branch": "fix/dsv41-even-index-blocks",
+    "patches": [
+      11
+    ],
+    "title": "fix(dsv41): align prompt index blocks without a scratch copy",
+    "sha": "954fdb93c5869d0b155ccf2448066b4fe1682dc3",
+    "lean_problems": 1420,
+    "files": [
+      "zig/src/families/dsv41/prompt.zig"
+    ]
+  },
+  {
+    "branch": "test/direct-io-buffered-reference",
+    "patches": [
+      12
+    ],
+    "title": "test(core): use a buffered descriptor for direct IO comparison",
+    "sha": "4e665c646a28b8c93903f93ebe6a934d6f61b157",
+    "lean_problems": 1420,
+    "files": [
+      "zig/src/core/direct_io.zig"
+    ]
+  },
+  {
+    "branch": "fix/dsv41-retained-cache-extents",
+    "patches": [
+      2,
+      3
+    ],
+    "title": "fix(dsv41): protect retained cache extents during growth",
+    "sha": "cd32df3e13e92ca8f8151442fc3d4145ab3e6ef7",
+    "lean_problems": 1417,
+    "files": [
+      "zig/src/families/dsv41/lanes.zig"
+    ]
+  },
+  {
+    "branch": "perf/dsv41-gpu-sampling-candidates",
+    "patches": [
+      4,
+      5,
+      6
+    ],
+    "title": "perf(dsv41): add opt-in GPU sampling candidate selection",
+    "sha": "e7ebb370d6cd5055bae60c77661f1c7f6c765057",
+    "lean_problems": 1420,
+    "files": [
+      "zig/kernels/cuda/dsv41_ops.cu",
+      "zig/src/families/dsv41/lanes.zig",
+      "zig/src/families/dsv41/model.zig",
+      "zig/src/families/dsv41/ops.zig",
+      "zig/src/families/dsv41/sampling.zig",
+      "tools/dsv41-zig/test_candidates.py",
+      "zig/kernels/cuda/dsv41_candidates.cuh"
+    ]
+  },
+  {
+    "branch": "fix/dsv41-rdma-gid-mtu",
+    "patches": [
+      1
+    ],
+    "title": "fix(dsv41): configure RDMA GID and negotiate endpoint MTU",
+    "sha": "ad126072e921c0e3ba20418985662283a79fb46d",
+    "lean_problems": 1420,
+    "files": [
+      "zig/src/families/dsv41/model.zig",
+      "zig/src/families/dsv41/rdma.zig"
+    ]
+  }
+]

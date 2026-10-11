@@ -1,0 +1,89 @@
+{
+  "scope": "Historical matched R2 versus GPU candidate API tests, before alignment repair; decision later superseded by owner selection of A",
+  "table": [
+    {
+      "workload": "Sampled C1 short-prompt batch, including prefill",
+      "r2": 69.64573987771992,
+      "candidate": 72.63398329089327,
+      "percent": 4.290633452124903,
+      "r2_runs": [
+        68.12836263787555,
+        71.86681762130597,
+        69.64573987771992
+      ],
+      "candidate_runs": [
+        72.63398329089327,
+        72.88538635017659,
+        72.60912038327311
+      ],
+      "r2_ttft_s": 0.10945174749940634,
+      "candidate_ttft_s": 0.10903885448351502
+    },
+    {
+      "workload": "Sampled C8 short-prompt batch, including prefill",
+      "r2": 114.20400775866072,
+      "candidate": 116.54205044321976,
+      "percent": 2.0472509944658546,
+      "r2_runs": [
+        94.87228875466053,
+        114.20400775866072,
+        114.89482227122782
+      ],
+      "candidate_runs": [
+        114.32250073886266,
+        116.97313534236513,
+        116.54205044321976
+      ],
+      "r2_ttft_s": 0.5105044780066237,
+      "candidate_ttft_s": 0.4978424130240455
+    },
+    {
+      "workload": "Greedy C1 code decode, set B384",
+      "r2": 101.03685686959422,
+      "candidate": 101.31016849340497,
+      "percent": 0.2705068549029743,
+      "r2_runs": [
+        100.891,
+        101.421,
+        101.037
+      ],
+      "candidate_runs": [
+        101.31,
+        101.835,
+        99.695
+      ]
+    },
+    {
+      "workload": "Greedy C1 prose decode, set B384",
+      "r2": 62.566510456670215,
+      "candidate": 62.772951853242276,
+      "percent": 0.32995510707765074,
+      "r2_runs": [
+        62.464,
+        62.567,
+        62.702
+      ],
+      "candidate_runs": [
+        62.951,
+        61.288,
+        62.773
+      ]
+    },
+    {
+      "workload": "Greedy C1 structured decode, set B384",
+      "r2": 141.04486834144183,
+      "candidate": 142.87124080045382,
+      "percent": 1.2948875634317236,
+      "r2_runs": [
+        141.045,
+        141.314,
+        140.748
+      ],
+      "candidate_runs": [
+        142.487,
+        143.863,
+        142.871
+      ]
+    }
+  ]
+}

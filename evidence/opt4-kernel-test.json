@@ -1,0 +1,135 @@
+{
+  "status": "pass",
+  "finite_cases": 21,
+  "fallback_cases": 3,
+  "all_tied_case": 1,
+  "results": [
+    {
+      "rows": 1,
+      "vocab": 17,
+      "k": 1,
+      "selection_copy_ms": 0.060332007706165314
+    },
+    {
+      "rows": 1,
+      "vocab": 4097,
+      "k": 1,
+      "selection_copy_ms": 0.04727619234472513
+    },
+    {
+      "rows": 1,
+      "vocab": 4097,
+      "k": 28,
+      "selection_copy_ms": 0.07412699051201344
+    },
+    {
+      "rows": 1,
+      "vocab": 4097,
+      "k": 64,
+      "selection_copy_ms": 0.07477679755538702
+    },
+    {
+      "rows": 1,
+      "vocab": 129280,
+      "k": 1,
+      "selection_copy_ms": 0.06525360513478518
+    },
+    {
+      "rows": 1,
+      "vocab": 129280,
+      "k": 28,
+      "selection_copy_ms": 0.08460700046271086
+    },
+    {
+      "rows": 1,
+      "vocab": 129280,
+      "k": 64,
+      "selection_copy_ms": 0.08882139809429646
+    },
+    {
+      "rows": 8,
+      "vocab": 17,
+      "k": 1,
+      "selection_copy_ms": 0.038265204057097435
+    },
+    {
+      "rows": 8,
+      "vocab": 4097,
+      "k": 1,
+      "selection_copy_ms": 0.04957381170243025
+    },
+    {
+      "rows": 8,
+      "vocab": 4097,
+      "k": 28,
+      "selection_copy_ms": 0.08682459592819214
+    },
+    {
+      "rows": 8,
+      "vocab": 4097,
+      "k": 64,
+      "selection_copy_ms": 0.08625818882137537
+    },
+    {
+      "rows": 8,
+      "vocab": 129280,
+      "k": 1,
+      "selection_copy_ms": 0.12435698881745338
+    },
+    {
+      "rows": 8,
+      "vocab": 129280,
+      "k": 28,
+      "selection_copy_ms": 0.11239859741181135
+    },
+    {
+      "rows": 8,
+      "vocab": 129280,
+      "k": 64,
+      "selection_copy_ms": 0.11033799964934587
+    },
+    {
+      "rows": 16,
+      "vocab": 17,
+      "k": 1,
+      "selection_copy_ms": 0.03761241678148508
+    },
+    {
+      "rows": 16,
+      "vocab": 4097,
+      "k": 1,
+      "selection_copy_ms": 0.052690599113702774
+    },
+    {
+      "rows": 16,
+      "vocab": 4097,
+      "k": 28,
+      "selection_copy_ms": 0.07688859477639198
+    },
+    {
+      "rows": 16,
+      "vocab": 4097,
+      "k": 64,
+      "selection_copy_ms": 0.08731400594115257
+    },
+    {
+      "rows": 16,
+      "vocab": 129280,
+      "k": 1,
+      "selection_copy_ms": 0.12215860188007355
+    },
+    {
+      "rows": 16,
+      "vocab": 129280,
+      "k": 28,
+      "selection_copy_ms": 0.1454479992389679
+    },
+    {
+      "rows": 16,
+      "vocab": 129280,
+      "k": 64,
+      "selection_copy_ms": 0.15714059118181467
+    }
+  ],
+  "timing_limit": "Synthetic selection and readback including Python allocations; live model remained loaded. Not end-to-end generation throughput."
+}

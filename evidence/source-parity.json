@@ -1,0 +1,17 @@
+{
+  "base": "4e80f05ecba89a4e90d16375ade2eddbdc0a10c4",
+  "files": [
+    "tools/dsv41-zig/test_candidates.py",
+    "zig/kernels/cuda/dsv41_candidates.cuh",
+    "zig/kernels/cuda/dsv41_ops.cu",
+    "zig/src/core/direct_io.zig",
+    "zig/src/families/dsv41/lanes.zig",
+    "zig/src/families/dsv41/model.zig",
+    "zig/src/families/dsv41/ops.zig",
+    "zig/src/families/dsv41/prompt.zig",
+    "zig/src/families/dsv41/rdma.zig",
+    "zig/src/families/dsv41/sampling.zig"
+  ],
+  "comparison": "Publication source equals validated local source after removing whitespace and standalone // comments; no arithmetic or logic changes",
+  "combined_patch_sha256": "b41e6e6aa22a034d88bcf3434ea16ec5ea794b2748ddfc7229e84ef29b37462c"
+}

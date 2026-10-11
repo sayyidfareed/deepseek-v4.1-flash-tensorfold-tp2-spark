@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "sources": {
+    "native": {
+      "url": "https://github.com/bertholomus/TensorFold.git",
+      "revision": "4e80f05ecba89a4e90d16375ade2eddbdc0a10c4"
+    },
+    "python": {
+      "url": "https://github.com/bertholomus/TensorFold.git",
+      "revision": "90b68e063a0b8bba59aaf13340ef16619e751195"
+    },
+    "recipe": {
+      "url": "https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp2-2xgb10.git",
+      "revision": "5e90ec9302149049e8f019ea035827cb24c206f8"
+    }
+  },
+  "artifacts": {
+    "weights": {
+      "repo": "Mia-AiLab/DeepSeek-V4.1-Flash-EXL3-2.9bpw",
+      "revision": "64ba41b6c916a587db06eae2e19b7845f7be6e6b"
+    },
+    "original": {
+      "repo": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "revision": "2cba9e42aa026125f3ed06c6d98c1db82f7ca027"
+    },
+    "kit": {
+      "repo": "bertholomus/DeepSeek-V4.1-Flash-TensorFold-TP2-2xGB10",
+      "revision": "789625a7081e91643cb61ceafd15f588850c511a"
+    }
+  },
+  "toolchain": {
+    "zig": "0.17.0",
+    "cuda_target": "sm_121",
+    "container_tag_reference": "nvcr.io/nvidia/pytorch:26.07-py3",
+    "container_digest": "sha256:7531d90bcbe0e43e1f7363029c7e145ce90eebeb494a7b4695fdba0329d7c3c3",
+    "arm64_resolved_image": "sha256:1ad8c1382c09861dee9c342b59f6e5e3e65fe7fde4a07b5e379bc985b66902dd"
+  },
+  "profiles": {
+    "baseline-c4": {
+      "streams": 4,
+      "round_rows": 16,
+      "pool_tokens": 1048576,
+      "qualified_here": false
+    },
+    "candidate-c8": {
+      "streams": 8,
+      "round_rows": 16,
+      "pool_tokens": 1048576,
+      "qualified_here": false
+    },
+    "accepted-c8": {
+      "streams": 8,
+      "round_rows": 16,
+      "pool_tokens": 1048576,
+      "gpu_candidates": true,
+      "qualified_here": false
+    }
+  },
+  "patches": {
+    "native": {
+      "path": "patches/accepted.patch",
+      "sha256": "b41e6e6aa22a034d88bcf3434ea16ec5ea794b2748ddfc7229e84ef29b37462c"
+    }
+  }
+}

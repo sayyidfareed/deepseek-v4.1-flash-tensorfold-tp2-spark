@@ -1,0 +1,15 @@
+Fareed's DeepSeek V4.1 Flash dual-Spark recipe
+Copyright 2026 sayyidfareed. Licensed under Apache-2.0.
+
+Derived serving work:
+- TensorFold by ashhart: https://github.com/ashhart/TensorFold
+- Bertholomus's dsv41 native family and TP2 recipe:
+  https://github.com/bertholomus/TensorFold/tree/deepseek-v41-zig
+  https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp2-2xgb10
+- DeepSeek V4.1 Flash by DeepSeek: https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
+- EXL3 2.9 bpw quantization by Mia-AiLab:
+  https://huggingface.co/Mia-AiLab/DeepSeek-V4.1-Flash-EXL3-2.9bpw
+
+The fetched engine, model and kit retain their upstream LICENSE, NOTICE,
+THIRD_PARTY_NOTICES and KIT-LICENSES files. This source-only recipe does not
+redistribute those artifacts. No endorsement by upstream authors is implied.
