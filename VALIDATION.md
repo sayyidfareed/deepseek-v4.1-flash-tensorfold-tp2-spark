@@ -2,6 +2,7 @@
 
 Environment: two GB10 GPUs, EXL3 2.9 bpw, TP2, CUDA SM121, Zig 0.17.0;
 source and checkpoint revisions and ARM64 container identities are in lock.json.
+OS receipt: Ubuntu 24.04.5 LTS, kernel 7.0.0-1019-nvidia, driver 580.178.04.
 The tested engine uses Bertholomus v0.6.1 kernel assets. No Metal test is claimed.
 
 - Publication recipe: 10/10 offline contracts passed; a real fresh source fetch,
