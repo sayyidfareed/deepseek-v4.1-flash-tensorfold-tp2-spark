@@ -23,6 +23,7 @@ are listed in [UPSTREAM.md](UPSTREAM.md).
 - Automatic tools and ordinary streaming tested. Required/named tool choice and
   strict JSON-schema output remain unsupported; this is not full OpenAI API parity.
 - Long prompt alignment repair included; direct-I/O correction changes a test only.
+- Upstream `_topk_sel` N=KK=256 kernel repair for 512/513-token prompts, pinned separately from the original kit.
 
 The public `qualified_here` field remains false: successful checks do not establish
 all capabilities, every prompt length, or every eight-user workload. Extra work
@@ -91,11 +92,32 @@ in [lock.json](lock.json). Preserve the source licenses and third-party notices.
 ## Prepare each GPU node
 
 Use the pinned upstream recipe's [preparation instructions](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp2-2xgb10/tree/5e90ec9302149049e8f019ea035827cb24c206f8)
-for driver/container setup and the immutable published kernel kit. Obtain the
+for driver/container setup and the immutable published base kernel kit. Apply the
+pinned upstream overlay below before serving. Obtain the
 Mia checkpoint at the locked revision, original DeepSeek shards 47 and 48 for
 Engram, and a separate rank cache and token map for each node. Do not confuse a
 complete weight download with complete rank-cache preparation. Rank caches add
 about 106 GB per node; retain enough storage for inputs, build outputs and rollback.
+
+Prepare the corrected kit on **each node**, using the original kit directory as input and a new, inactive output directory:
+
+```sh
+python3 prepare_kit.py --base /path/to/original-kit --output /path/to/corrected-kit
+```
+
+The helper fetches only five small files from upstream recipe commit
+`776e13f6c877bc7aa6bbc2246be0d64f6c3624fc`, verifies their pinned SHA-256 values,
+and verifies all 223 entries in the resulting kit manifest. It preserves the
+input kit, refuses an existing output directory, and never restarts a service.
+Set `kit` in each node's private site configuration to the corrected kit's path
+**inside the container**, with matching mounts. Existing deployments must recreate
+both serving processes to load new AOT metadata; follow their normal maintenance
+and rollback procedure. Do not point a fresh deployment at the unpatched base kit.
+
+This is the upstream [recipe PR #13](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp2-2xgb10/pull/13)
+fix by Lucas Peters, not a new kernel authored here. All 197 existing variants
+remain unchanged; one missing variant is added. The engine source pin and our
+combined patch remain unchanged, including the tested zero-copy alignment repair.
 
 `upstream/native/tools/dsv41-zig/build_inputs.sh` documents the input-generation
 contract and invokes the **Python** TP2 engine. Inspect its fixed container names,

@@ -1,3 +1,14 @@
+# Unreleased — upstream short-prompt kernel repair
+
+Add a separately pinned upstream kit overlay for `_topk_sel` N=KK=256.
+`prepare_kit.py` prepares a new kit and verifies all 223 manifest entries without
+changing the original kit or starting a service. Add a short-boundary option to
+the existing completion check. Keep the accepted engine patch and weights unchanged.
+Update upstream dispositions: alignment PR closed, direct-I/O and RDMA merged.
+
+Installed pair: all ten short-boundary completions and nine API route checks pass.
+No new speed claim or clean-machine installation qualification is made.
+
 # v0.1.0 — source-only preview
 
 Pinned dual-GB10 TensorFold TP2 recipe with eight active slots, a shared 1M-token

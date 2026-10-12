@@ -42,3 +42,28 @@ Supply API_KEY through your environment when authentication is enabled. It is
 never written to the receipt. This submits three approximately 72K-token prompts;
 the test checks counted tokens and returned markers. It does not restart a server.
 The helper needs tokenizer routes exposed on the chosen test endpoint.
+
+## October 12 kit correction
+
+The installed pair added upstream recipe PR #13's pinned kernel overlay to the
+existing accepted runtime. Ten cold completions passed at 256, 257, 510, 511,
+512, 513, 514, 515, 1024 and 1025 tokens, including correct synthetic marker
+retrieval and zero cached prompt tokens. All nine authentication, streaming and
+automatic-tool checks passed across three routes. Original credentials restored;
+access isolation lasted 184.75 seconds. This is a correctness repair, not a speed
+benchmark or proof of every prompt length. See `evidence/short-boundary.json`.
+
+The existing boundary helper can run these short cases independently:
+
+```sh
+BASE_URL=http://127.0.0.1:8000 python3 boundary_check.py --short
+```
+
+The previous long-boundary mode remains the default.
+
+Recipe-update validation: 12/12 offline tests passed, including preserving the
+input kit and rejecting corruption/existing outputs. The preparation command
+produced a separate complete kit from the original base with all 223 checksums
+verified. The updated public boundary helper passed all ten short cases on the
+running pair without a restart. These checks do not qualify a clean-machine
+GPU installation of the whole public recipe.

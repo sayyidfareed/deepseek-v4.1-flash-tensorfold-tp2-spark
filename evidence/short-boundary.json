@@ -1,0 +1,326 @@
+{
+  "description": "Installed TP2 pair; existing accepted runtime plus upstream PR13 kit overlay. Greedy synthetic marker completions.",
+  "upstream_revision": "776e13f6c877bc7aa6bbc2246be0d64f6c3624fc",
+  "cases": [
+    {
+      "prompt_tokens": 256,
+      "seconds": 0.46057772694621235,
+      "usage": {
+        "prompt_tokens": 256,
+        "completion_tokens": 4,
+        "total_tokens": 260,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "ALPHA",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 69.07686915445629,
+        "seconds": 0.459379635,
+        "prefill_seconds": 0.415807742,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.416310172,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "6f60a8adb51e",
+        "min_rows": 3
+      }
+    },
+    {
+      "prompt_tokens": 257,
+      "seconds": 0.4237985289655626,
+      "usage": {
+        "prompt_tokens": 257,
+        "completion_tokens": 3,
+        "total_tokens": 260,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "BRAVO",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 46.83293999517855,
+        "seconds": 0.422154199,
+        "prefill_seconds": 0.379306559,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.379561086,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "9e6f78782ae4",
+        "min_rows": 3
+      }
+    },
+    {
+      "prompt_tokens": 510,
+      "seconds": 0.5241697259480134,
+      "usage": {
+        "prompt_tokens": 510,
+        "completion_tokens": 4,
+        "total_tokens": 514,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "CHARLIE",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 86.27713556113744,
+        "seconds": 0.522831858,
+        "prefill_seconds": 0.487906174,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.488173085,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "06f0f72aced6",
+        "min_rows": 3
+      }
+    },
+    {
+      "prompt_tokens": 511,
+      "seconds": 0.5234702560119331,
+      "usage": {
+        "prompt_tokens": 511,
+        "completion_tokens": 3,
+        "total_tokens": 514,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "DELTA",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 46.23666063671257,
+        "seconds": 0.521986741,
+        "prefill_seconds": 0.478682238,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.478839902,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "c9c5f9a7b9a1",
+        "min_rows": 3
+      }
+    },
+    {
+      "prompt_tokens": 512,
+      "seconds": 0.5143298240145668,
+      "usage": {
+        "prompt_tokens": 512,
+        "completion_tokens": 3,
+        "total_tokens": 515,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "ECHO",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 47.1721154115806,
+        "seconds": 0.512855829,
+        "prefill_seconds": 0.47041102,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.470569531,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "133f4e263e0e",
+        "min_rows": 3
+      }
+    },
+    {
+      "prompt_tokens": 513,
+      "seconds": 0.5709627909818664,
+      "usage": {
+        "prompt_tokens": 513,
+        "completion_tokens": 5,
+        "total_tokens": 518,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "FOXTROT",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 42.750409132102995,
+        "seconds": 0.569233901,
+        "prefill_seconds": 0.47552681,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.47605836,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "45b4d3cfea81",
+        "min_rows": 3
+      }
+    },
+    {
+      "prompt_tokens": 514,
+      "seconds": 0.5358468679478392,
+      "usage": {
+        "prompt_tokens": 514,
+        "completion_tokens": 4,
+        "total_tokens": 518,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "GOLF",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 54.95011216691646,
+        "seconds": 0.534565881,
+        "prefill_seconds": 0.479924058,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.48016137,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "35bcb94f8d54",
+        "min_rows": 6
+      }
+    },
+    {
+      "prompt_tokens": 515,
+      "seconds": 0.5293394830077887,
+      "usage": {
+        "prompt_tokens": 515,
+        "completion_tokens": 4,
+        "total_tokens": 519,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "HOTEL",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 56.376341848547554,
+        "seconds": 0.528148927,
+        "prefill_seconds": 0.474789485,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.475339274,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "b282e7e8c53b",
+        "min_rows": 6
+      }
+    },
+    {
+      "prompt_tokens": 1024,
+      "seconds": 0.7368652590084821,
+      "usage": {
+        "prompt_tokens": 1024,
+        "completion_tokens": 3,
+        "total_tokens": 1027,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "INDIA",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 34.85586298968915,
+        "seconds": 0.735631631,
+        "prefill_seconds": 0.678130091,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.678621402,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "7faa56f779f4",
+        "min_rows": 6
+      }
+    },
+    {
+      "prompt_tokens": 1025,
+      "seconds": 0.7472097179852426,
+      "usage": {
+        "prompt_tokens": 1025,
+        "completion_tokens": 5,
+        "total_tokens": 1030,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "answer": "JULIET",
+      "passed": true,
+      "tensorfold": {
+        "enable_thinking": false,
+        "reasoning_effort": "none",
+        "engine": "lanes",
+        "tokens_per_second": 72.90077524689168,
+        "seconds": 0.745928667,
+        "prefill_seconds": 0.690922526,
+        "prefill_widths": [],
+        "prefill_raised": [],
+        "time_to_first_token": 0.691243004,
+        "sampling": "greedy",
+        "drafts": true,
+        "token_sha": "ac3578d635d7",
+        "min_rows": 6
+      }
+    }
+  ]
+}
